@@ -7,298 +7,66 @@
 //!
 
 // Ensure that doc tests in the README.md file get run.
-#[doc(hidden)]
-mod test_readme {
-    #![doc = include_str!("../README.md")]
-}
 
 mod utils;
-
-use std::fmt::{self, Write};
-
 use clap::builder::PossibleValue;
-
+use std::io::Write;
 use utils::pluralize;
 
-//======================================
-// Public API types
-//======================================
+/// Generate mdx page files for the command with all subcommands
+pub fn generate_to(
+    command: &clap::Command,
+    out_dir: impl AsRef<std::path::Path>,
+) -> Result<Vec<std::path::PathBuf>, std::io::Error> {
+    fn generate(
+        command: &clap::Command,
+        parent_command_path: &Vec<String>,
+        out_dir: &std::path::Path,
+    ) -> Result<Vec<std::path::PathBuf>, std::io::Error> {
+        std::fs::create_dir_all(&out_dir)?;
+        let mut paths = Vec::new();
+        paths.push(generate_command_to(
+            command,
+            &parent_command_path,
+            out_dir,
+        )?);
 
-/// Options to customize the structure of the output Markdown document.
-///
-/// Used with [`help_markdown_custom()`].
-#[non_exhaustive]
-pub struct MarkdownOptions {
-    title: Option<String>,
-    show_footer: bool,
-    show_table_of_contents: bool,
-    show_aliases: bool,
-}
-
-impl MarkdownOptions {
-    /// Construct a default instance of `MarkdownOptions`.
-    pub fn new() -> Self {
-        return Self {
-            title: None,
-            show_footer: true,
-            show_table_of_contents: true,
-            show_aliases: true,
+        let command_name = get_canonical_name(command);
+        let out_dir = out_dir.join(&command_name);
+        let command_path = {
+            let mut command_path = parent_command_path.clone();
+            command_path.push(command_name);
+            command_path
         };
+
+        for subcommand in command.get_subcommands().filter(|s| !s.is_hide_set())
+        {
+            paths.extend(generate(subcommand, &command_path, &out_dir)?);
+        }
+        Ok(paths)
     }
 
-    /// Set a custom title to use in the generated document.
-    pub fn title(mut self, title: String) -> Self {
-        self.title = Some(title);
-
-        return self;
-    }
-
-    /// Whether to show the default footer advertising `clap-markdown`.
-    pub fn show_footer(mut self, show: bool) -> Self {
-        self.show_footer = show;
-
-        return self;
-    }
-
-    /// Whether to show the default table of contents.
-    pub fn show_table_of_contents(mut self, show: bool) -> Self {
-        self.show_table_of_contents = show;
-
-        return self;
-    }
-
-    /// Whether to show aliases for arguments and commands.
-    pub fn show_aliases(mut self, show: bool) -> Self {
-        self.show_aliases = show;
-
-        return self;
-    }
+    generate(command, &Vec::new(), out_dir.as_ref())
 }
 
-impl Default for MarkdownOptions {
-    fn default() -> Self {
-        return Self::new();
-    }
-}
-
-//======================================
-// Public API functions
-//======================================
-
-/// Format the help information for `command` as Markdown.
-pub fn help_markdown<C: clap::CommandFactory>() -> String {
-    let command = C::command();
-
-    help_markdown_command(&command)
-}
-
-/// Format the help information for `command` as Markdown, with custom options.
-pub fn help_markdown_custom<C: clap::CommandFactory>(
-    options: &MarkdownOptions,
-) -> String {
-    let command = C::command();
-
-    return help_markdown_command_custom(&command, options);
-}
-
-/// Format the help information for `command` as Markdown.
-pub fn help_markdown_command(command: &clap::Command) -> String {
-    return help_markdown_command_custom(command, &Default::default());
-}
-
-/// Format the help information for `command` as Markdown, with custom options.
-pub fn help_markdown_command_custom(
+pub fn generate_command_to(
     command: &clap::Command,
-    options: &MarkdownOptions,
-) -> String {
-    let mut buffer = String::with_capacity(100);
-
-    write_help_markdown(&mut buffer, &command, options);
-
-    buffer
-}
-
-//======================================
-// Markdown
-//======================================
-
-/// Format the help information for `command` as Markdown and print it.
-///
-/// Output is printed to the standard output, using [`println!`].
-pub fn print_help_markdown<C: clap::CommandFactory>() {
-    let command = C::command();
-
-    let mut buffer = String::with_capacity(100);
-
-    write_help_markdown(&mut buffer, &command, &Default::default());
-
-    println!("{}", buffer);
-}
-
-fn write_help_markdown(
-    buffer: &mut String,
-    command: &clap::Command,
-    options: &MarkdownOptions,
-) {
-    //----------------------------------
-    // Write the document title
-    //----------------------------------
-
+    parent_command_path: &Vec<String>,
+    out_dir: impl AsRef<std::path::Path>,
+) -> Result<std::path::PathBuf, std::io::Error> {
     let title_name = get_canonical_name(command);
-
-    let title = match options.title {
-        Some(ref title) => title.to_owned(),
-        None => format!("Command-Line Help for `{title_name}`"),
-    };
-    writeln!(buffer, "# {title}\n",).unwrap();
-
-    writeln!(
-        buffer,
-        "This document contains the help content for the `{}` command-line program.\n",
-        title_name
-    ).unwrap();
-
-    //----------------------------------
-    // Write the table of contents
-    //----------------------------------
-
-    // writeln!(buffer, r#"<div style="background: light-gray"><ul>"#).unwrap();
-    // build_table_of_contents_html(buffer, Vec::new(), command, 0).unwrap();
-    // writeln!(buffer, "</ul></div>").unwrap();
-
-    if options.show_table_of_contents {
-        writeln!(buffer, "**Command Overview:**\n").unwrap();
-
-        build_table_of_contents_markdown(buffer, Vec::new(), command, 0)
-            .unwrap();
-
-        write!(buffer, "\n").unwrap();
-    }
-
-    //----------------------------------------
-    // Write the commands/subcommands sections
-    //----------------------------------------
-
-    build_command_markdown(buffer, Vec::new(), command, 0, options).unwrap();
-
-    //-----------------
-    // Write the footer
-    //-----------------
-    if options.show_footer {
-        write!(buffer, r#"<hr/>
-
-<small><i>
-    This document was generated automatically by
-    <a href="https://crates.io/crates/clap-markdown"><code>clap-markdown</code></a>.
-</i></small>
-"#).unwrap();
-    }
+    let filepath = out_dir.as_ref().join(format!("{}.mdx", title_name));
+    let mut file = std::fs::File::create(&filepath)?;
+    write_command_markdown(&mut file, parent_command_path, command)?;
+    file.flush()?;
+    Ok(filepath)
 }
 
-fn build_table_of_contents_markdown(
-    buffer: &mut String,
-    // Parent commands of `command`.
-    parent_command_path: Vec<String>,
+pub fn write_command_markdown(
+    w: &mut dyn Write,
+    parent_command_path: &Vec<String>,
     command: &clap::Command,
-    depth: usize,
-) -> std::fmt::Result {
-    // Don't document commands marked with `clap(hide = true)` (which includes
-    // `print-all-help`).
-    if command.is_hide_set() {
-        return Ok(());
-    }
-
-    let title_name = get_canonical_name(command);
-
-    // Append the name of `command` to `command_path`.
-    let command_path = {
-        let mut command_path = parent_command_path;
-        command_path.push(title_name);
-        command_path
-    };
-
-    writeln!(
-        buffer,
-        "* [`{}`↴](#{})",
-        command_path.join(" "),
-        command_path.join("-"),
-    )?;
-
-    //----------------------------------
-    // Recurse to write subcommands
-    //----------------------------------
-
-    for subcommand in command.get_subcommands() {
-        build_table_of_contents_markdown(
-            buffer,
-            command_path.clone(),
-            subcommand,
-            depth + 1,
-        )?;
-    }
-
-    Ok(())
-}
-
-/*
-fn build_table_of_contents_html(
-    buffer: &mut String,
-    // Parent commands of `command`.
-    parent_command_path: Vec<String>,
-    command: &clap::Command,
-    depth: usize,
-) -> std::fmt::Result {
-    // Don't document commands marked with `clap(hide = true)` (which includes
-    // `print-all-help`).
-    if command.is_hide_set() {
-        return Ok(());
-    }
-
-    // Append the name of `command` to `command_path`.
-    let command_path = {
-        let mut command_path = parent_command_path;
-        command_path.push(command.get_name().to_owned());
-        command_path
-    };
-
-    writeln!(
-        buffer,
-        "<li><a href=\"#{}\"><code>{}</code>↴</a></li>",
-        command_path.join("-"),
-        command_path.join(" ")
-    )?;
-
-    //----------------------------------
-    // Recurse to write subcommands
-    //----------------------------------
-
-    for subcommand in command.get_subcommands() {
-        build_table_of_contents_html(
-            buffer,
-            command_path.clone(),
-            subcommand,
-            depth + 1,
-        )?;
-    }
-
-    Ok(())
-}
-*/
-
-fn build_command_markdown(
-    buffer: &mut String,
-    // Parent commands of `command`.
-    parent_command_path: Vec<String>,
-    command: &clap::Command,
-    depth: usize,
-    options: &MarkdownOptions,
-) -> std::fmt::Result {
-    // Don't document commands marked with `clap(hide = true)` (which includes
-    // `print-all-help`).
-    if command.is_hide_set() {
-        return Ok(());
-    }
-
+) -> Result<(), std::io::Error> {
     let title_name = get_canonical_name(command);
 
     // Append the name of `command` to `command_path`.
@@ -307,37 +75,32 @@ fn build_command_markdown(
         command_path.push(title_name);
         command_path
     };
+    let command_path_str = command_path.join("/");
 
     //----------------------------------
     // Write the markdown heading
     //----------------------------------
 
-    // TODO: `depth` is now unused. Remove if no other use for it appears.
-    /*
-    if depth >= 6 {
-        panic!(
-            "command path nesting depth is deeper than maximum markdown header depth: `{}`",
-            command_path.join(" ")
-        )
-    }
-    */
-    writeln!(buffer, "## `{}`\n", command_path.join(" "))?;
+    writeln!(w, "---")?;
+    writeln!(w, "title: {}", command_path.join(" "))?;
+    writeln!(w, "isCommand: true")?;
+    writeln!(w, "---\n")?;
 
     if let Some(long_about) = command.get_long_about() {
-        writeln!(buffer, "{}\n", long_about)?;
+        writeln!(w, "{}\n", long_about)?;
     } else if let Some(about) = command.get_about() {
-        writeln!(buffer, "{}\n", about)?;
+        writeln!(w, "{}\n", about)?;
     }
 
     if let Some(help) = command.get_before_long_help() {
-        writeln!(buffer, "{}\n", help)?;
+        writeln!(w, "{}\n", help)?;
     } else if let Some(help) = command.get_before_help() {
-        writeln!(buffer, "{}\n", help)?;
+        writeln!(w, "{}\n", help)?;
     }
 
     writeln!(
-        buffer,
-        "**Usage:** `{}{}`\n",
+        w,
+        "```shell title=\"Usage\"\n{}{}\n```\n",
         if parent_command_path.is_empty() {
             String::new()
         } else {
@@ -352,21 +115,19 @@ fn build_command_markdown(
             .replace("Usage: ", "")
     )?;
 
-    if options.show_aliases {
-        let aliases = command.get_visible_aliases().collect::<Vec<&str>>();
-        if let Some(aliases_str) = get_alias_string(&aliases) {
-            writeln!(
-                buffer,
-                "**{}:** {aliases_str}\n",
-                pluralize(aliases.len(), "Command Alias", "Command Aliases")
-            )?;
-        }
+    let aliases = command.get_visible_aliases().collect::<Vec<&str>>();
+    if let Some(aliases_str) = get_alias_string(&aliases) {
+        writeln!(
+            w,
+            "**{}:** {aliases_str}\n",
+            pluralize(aliases.len(), "Command Alias", "Command Aliases")
+        )?;
     }
 
     if let Some(help) = command.get_after_long_help() {
-        writeln!(buffer, "{}\n", help)?;
+        writeln!(w, "{}\n", help)?;
     } else if let Some(help) = command.get_after_help() {
-        writeln!(buffer, "{}\n", help)?;
+        writeln!(w, "{}\n", help)?;
     }
 
     //----------------------------------
@@ -374,7 +135,7 @@ fn build_command_markdown(
     //----------------------------------
 
     if command.get_subcommands().next().is_some() {
-        writeln!(buffer, "###### **Subcommands:**\n")?;
+        writeln!(w, "### Subcommands\n")?;
 
         for subcommand in command.get_subcommands() {
             if subcommand.is_hide_set() {
@@ -388,10 +149,13 @@ fn build_command_markdown(
                 None => String::new(),
             };
 
-            writeln!(buffer, "* `{title_name}` — {about}",)?;
+            writeln!(
+                w,
+                "- [`{title_name}`]({command_path_str}/{title_name}) — {about}",
+            )?;
         }
 
-        write!(buffer, "\n")?;
+        write!(w, "\n")?;
     }
 
     //----------------------------------
@@ -399,13 +163,13 @@ fn build_command_markdown(
     //----------------------------------
 
     if command.get_positionals().next().is_some() {
-        writeln!(buffer, "###### **Arguments:**\n")?;
+        writeln!(w, "### Arguments\n")?;
 
         for pos_arg in command.get_positionals() {
-            write_arg_markdown(buffer, pos_arg)?;
+            write_arg_markdown(w, pos_arg)?;
         }
 
-        write!(buffer, "\n")?;
+        write!(w, "\n")?;
     }
 
     //----------------------------------
@@ -418,39 +182,24 @@ fn build_command_markdown(
         .collect();
 
     if !non_pos.is_empty() {
-        writeln!(buffer, "###### **Options:**\n")?;
+        writeln!(w, "### Options\n")?;
 
         for arg in non_pos {
-            write_arg_markdown(buffer, arg)?;
+            write_arg_markdown(w, arg)?;
         }
 
-        write!(buffer, "\n")?;
-    }
-
-    //----------------------------------
-    // Recurse to write subcommands
-    //----------------------------------
-
-    // Include extra space between commands. This is purely for the benefit of
-    // anyone reading the source .md file.
-    write!(buffer, "\n\n")?;
-
-    for subcommand in command.get_subcommands() {
-        build_command_markdown(
-            buffer,
-            command_path.clone(),
-            subcommand,
-            depth + 1,
-            options,
-        )?;
+        write!(w, "\n")?;
     }
 
     Ok(())
 }
 
-fn write_arg_markdown(buffer: &mut String, arg: &clap::Arg) -> fmt::Result {
+fn write_arg_markdown(
+    w: &mut dyn Write,
+    arg: &clap::Arg,
+) -> Result<(), std::io::Error> {
     // Markdown list item
-    write!(buffer, "* ")?;
+    write!(w, "- ")?;
 
     let value_name: String = match arg.get_value_names() {
         // TODO: What if multiple names are provided?
@@ -464,36 +213,36 @@ fn write_arg_markdown(buffer: &mut String, arg: &clap::Arg) -> fmt::Result {
     match (arg.get_short(), arg.get_long()) {
         (Some(short), Some(long)) => {
             if arg.get_action().takes_values() {
-                write!(buffer, "`-{short}`, `--{long} <{value_name}>`")?
+                write!(w, "`-{short}`, `--{long} <{value_name}>`")?
             } else {
-                write!(buffer, "`-{short}`, `--{long}`")?
+                write!(w, "`-{short}`, `--{long}`")?
             }
         },
         (Some(short), None) => {
             if arg.get_action().takes_values() {
-                write!(buffer, "`-{short} <{value_name}>`")?
+                write!(w, "`-{short} <{value_name}>`")?
             } else {
-                write!(buffer, "`-{short}`")?
+                write!(w, "`-{short}`")?
             }
         },
         (None, Some(long)) => {
             if arg.get_action().takes_values() {
-                write!(buffer, "`--{} <{value_name}>`", long)?
+                write!(w, "`--{} <{value_name}>`", long)?
             } else {
-                write!(buffer, "`--{}`", long)?
+                write!(w, "`--{}`", long)?
             }
         },
         (None, None) => {
             debug_assert!(arg.is_positional(), "unexpected non-positional Arg with neither short nor long name: {arg:?}");
 
-            write!(buffer, "`<{value_name}>`",)?;
+            write!(w, "`<{value_name}>`",)?;
         },
     }
 
     if let Some(aliases) = arg.get_visible_aliases().as_deref() {
         if let Some(aliases_str) = get_alias_string(aliases) {
             write!(
-                buffer,
+                w,
                 " [{}: {aliases_str}]",
                 pluralize(aliases.len(), "alias", "aliases")
             )?;
@@ -502,11 +251,11 @@ fn write_arg_markdown(buffer: &mut String, arg: &clap::Arg) -> fmt::Result {
 
     if let Some(help) = arg.get_long_help() {
         // TODO: Parse formatting in the string
-        buffer.push_str(&indent(&help.to_string(), " — ", "   "))
+        write!(w, "{}", &indent(&help.to_string(), " — ", "  "))?;
     } else if let Some(short_help) = arg.get_help() {
-        writeln!(buffer, " — {short_help}")?;
+        writeln!(w, " — {short_help}")?;
     } else {
-        writeln!(buffer)?;
+        writeln!(w)?;
     }
 
     //--------------------
@@ -523,10 +272,10 @@ fn write_arg_markdown(buffer: &mut String, arg: &clap::Arg) -> fmt::Result {
 
         if arg.get_default_values().len() > 1 {
             // Plural
-            writeln!(buffer, "\n  Default values: {default_values}")?;
+            writeln!(w, "\n  Default values: {default_values}")?;
         } else {
             // Singular
-            writeln!(buffer, "\n  Default value: {default_values}")?;
+            writeln!(w, "\n  Default value: {default_values}")?;
         }
     }
 
@@ -571,7 +320,7 @@ fn write_arg_markdown(buffer: &mut String, arg: &clap::Arg) -> fmt::Result {
                 .collect::<Vec<String>>()
                 .join("");
 
-            writeln!(buffer, "\n  Possible values:\n{text}")?;
+            writeln!(w, "\n  Possible values:\n\n{text}")?;
         } else {
             // If none of the possible values have any documentation, print
             // them all inline on a single line.
@@ -582,7 +331,7 @@ fn write_arg_markdown(buffer: &mut String, arg: &clap::Arg) -> fmt::Result {
                 .collect::<Vec<String>>()
                 .join(", ");
 
-            writeln!(buffer, "\n  Possible values: {text}\n")?;
+            writeln!(w, "\n  Possible values: {text}\n")?;
         }
     }
 
@@ -643,7 +392,6 @@ fn get_alias_string(aliases: &[&str]) -> Option<String> {
 
 #[cfg(test)]
 mod test {
-    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_indent() {

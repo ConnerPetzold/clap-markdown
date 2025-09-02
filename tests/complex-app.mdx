@@ -1,0 +1,42 @@
+---
+title: complex-app
+isCommand: true
+---
+
+An example command-line tool
+
+```shell title="Usage"
+complex-app [OPTIONS] [NAME] [COMMAND]
+```
+
+**Command Alias:** `ca`
+
+### Subcommands
+
+- [`test`](complex-app/test) — does testing things
+- [`only-hidden-options`](complex-app/only-hidden-options) — Demo that `Options` is not printed if all options are hidden
+
+### Arguments
+
+- `<NAME>` — Optional name to operate on
+
+  Longer description
+
+### Options
+
+- `-c`, `--config <FILE>` [alias: `configuration`] — Sets a custom config file
+- `--target <TARGET>`
+
+  Default value: `local`
+
+  Possible values:
+
+  - `local`:
+    Do the operation locally
+  - `remote`
+
+- `--very-very-verbose` [aliases: `vv`, `vvv`]
+- `-d`, `--debug` — Turn debugging information on
+
+  Repeat this option to see more and more debug information.
+
