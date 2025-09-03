@@ -151,7 +151,7 @@ pub fn write_command_markdown(
 
             writeln!(
                 w,
-                "- [`{title_name}`]({command_path_str}/{title_name}) — {about}",
+                "- [`{title_name}`](./{command_path_str}/{title_name}) — {about}",
             )?;
         }
 
