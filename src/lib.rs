@@ -23,15 +23,19 @@ pub fn generate_to(
         parent_command_path: &Vec<String>,
         out_dir: &std::path::Path,
     ) -> Result<Vec<std::path::PathBuf>, std::io::Error> {
+        let command_name = get_canonical_name(command);
         std::fs::create_dir_all(&out_dir)?;
         let mut paths = Vec::new();
         paths.push(generate_command_to(
             command,
             &parent_command_path,
-            out_dir,
+            if parent_command_path.is_empty() {
+                out_dir.join("index.mdx")
+            } else {
+                out_dir.join(format!("{}.mdx", command_name))
+            },
         )?);
 
-        let command_name = get_canonical_name(command);
         let out_dir = out_dir.join(&command_name);
         let command_path = {
             let mut command_path = parent_command_path.clone();
@@ -52,14 +56,12 @@ pub fn generate_to(
 pub fn generate_command_to(
     command: &clap::Command,
     parent_command_path: &Vec<String>,
-    out_dir: impl AsRef<std::path::Path>,
+    path: impl AsRef<std::path::Path>,
 ) -> Result<std::path::PathBuf, std::io::Error> {
-    let title_name = get_canonical_name(command);
-    let filepath = out_dir.as_ref().join(format!("{}.mdx", title_name));
-    let mut file = std::fs::File::create(&filepath)?;
+    let mut file = std::fs::File::create(&path)?;
     write_command_markdown(&mut file, parent_command_path, command)?;
     file.flush()?;
-    Ok(filepath)
+    Ok(path.as_ref().into())
 }
 
 pub fn write_command_markdown(

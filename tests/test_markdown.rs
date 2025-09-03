@@ -52,11 +52,11 @@ fn test_title_behavior_for_name_and_display_name_app() {
     assert_debug_snapshot!(
         generate_to(
             &app,
-            PathBuf::from("tests"),
+            PathBuf::from("tests/my-program-name"),
         ).unwrap(),
         @r#"
     [
-        "tests/my-program-display-name.mdx",
+        "tests/my-program-name/index.mdx",
     ]
     "#);
 }

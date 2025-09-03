@@ -66,13 +66,13 @@ fn test_example_complex_app() {
     assert_debug_snapshot!(
         generate_to(
             &Cli::command(),
-            PathBuf::from("tests"),
+            PathBuf::from("tests/complex-app"),
         ).unwrap(),
         @r#"
     [
-        "tests/complex-app.mdx",
-        "tests/complex-app/test.mdx",
-        "tests/complex-app/only-hidden-options.mdx",
+        "tests/complex-app/index.mdx",
+        "tests/complex-app/complex-app/test.mdx",
+        "tests/complex-app/complex-app/only-hidden-options.mdx",
     ]
     "#
     );
